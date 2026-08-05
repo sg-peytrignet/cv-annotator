@@ -1,0 +1,13 @@
+# Abstract (top-level) dependencies — the source of truth.
+# Compile to the fully-pinned requirements.txt (the deployed lockfile) with:
+#   uv pip compile requirements.in -o requirements.txt --python-version 3.11
+# Re-run after editing this file. Do NOT hand-edit requirements.txt.
+#
+# NOTE: databricks-openai was intentionally removed — it transitively pulled in
+# databricks-vectorsearch (an unpinned upgrade of which broke AI Suggest). FMAPI is now
+# called via a thin REST request (databricks-sdk for auth + requests) in libraries/ai_client.py.
+databricks-sdk>=0.81.0
+Flask>=3.0.3
+Pillow>=11.0.0
+gunicorn>=23.0.0
+requests>=2.31.0

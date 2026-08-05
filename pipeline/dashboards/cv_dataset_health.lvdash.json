@@ -1,0 +1,698 @@
+{
+  "datasets": [
+    {
+      "name": "ds_summary",
+      "displayName": "Pipeline summary (1 row)",
+      "queryLines": [
+        "SELECT ",
+        "  (SELECT count(*) FROM image_catalog) AS total_ingested, ",
+        "  (SELECT round(avg(person_count), 1) FROM image_catalog) AS avg_persons, ",
+        "  (SELECT count(DISTINCT source_path) FROM image_catalog) AS source_files, ",
+        "  (SELECT round((unix_timestamp(current_timestamp()) - unix_timestamp(max(ingested_at))) / 60.0, 0) ",
+        "     FROM image_catalog) AS minutes_since_ingest "
+      ]
+    },
+    {
+      "name": "ds_catalog",
+      "displayName": "Image catalog (AI-enriched)",
+      "queryLines": [
+        "SELECT filename, media_type, ingested_at, width, height, person_count, contains_faces, quality, caption, ",
+        "  array_join(tags, ', ') AS tags_str, ",
+        "  round(width * height / 1000000.0, 1) AS megapixels ",
+        "FROM image_catalog "
+      ]
+    },
+    {
+      "name": "ds_tags",
+      "displayName": "Exploded AI tags",
+      "queryLines": [
+        "SELECT tag ",
+        "FROM (SELECT explode(tags) AS tag FROM image_catalog) "
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "page_main",
+      "displayName": "Dataset Health",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 📸 CV Dataset Health — Ingestion & Privacy"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "subtitle",
+            "multilineTextboxSpec": {
+              "lines": [
+                "Live view of the governed image pipeline: landing → ingest → AI tagging · `image_catalog`"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "filter-media-type",
+            "queries": [
+              {
+                "name": "f_media",
+                "query": {
+                  "datasetName": "ds_catalog",
+                  "fields": [
+                    {
+                      "name": "media_type",
+                      "expression": "`media_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "media_type",
+                    "displayName": "Media type",
+                    "queryName": "f_media"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Media type"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filter-quality",
+            "queries": [
+              {
+                "name": "f_quality",
+                "query": {
+                  "datasetName": "ds_catalog",
+                  "fields": [
+                    {
+                      "name": "quality",
+                      "expression": "`quality`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "quality",
+                    "displayName": "Quality",
+                    "queryName": "f_quality"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "AI quality flag"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-total-ingested",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_summary",
+                  "fields": [
+                    {
+                      "name": "total_ingested",
+                      "expression": "`total_ingested`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_ingested",
+                  "displayName": "Images ingested"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Images ingested"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-avg-persons",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_summary",
+                  "fields": [
+                    {
+                      "name": "avg_persons",
+                      "expression": "`avg_persons`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_persons",
+                  "displayName": "Avg people / image"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg people per image (AI)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-freshness",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_summary",
+                  "fields": [
+                    {
+                      "name": "minutes_since_ingest",
+                      "expression": "`minutes_since_ingest`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "minutes_since_ingest",
+                  "displayName": "Minutes since last ingest"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "⏱ Minutes since last ingest"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "section-privacy",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Dataset composition (AI-tagged at ingest)"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "pie-quality",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_catalog",
+                  "fields": [
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "quality",
+                      "expression": "`quality`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Images"
+                },
+                "color": {
+                  "fieldName": "quality",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "sharp",
+                        "color": "#00A972"
+                      },
+                      {
+                        "value": "blurry",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "dark",
+                        "color": "#919191"
+                      }
+                    ]
+                  },
+                  "displayName": "Quality"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Image quality (AI assessment)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-person-count",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_catalog",
+                  "fields": [
+                    {
+                      "name": "person_count",
+                      "expression": "`person_count`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "person_count",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "natural-order"
+                    }
+                  },
+                  "displayName": "People in image"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Images"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Crowding — people per image"
+              },
+              "mark": {
+                "colors": [
+                  "#8BCAE7"
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "section-content",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### What's in the dataset — searchable without opening a single file"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "bar-top-tags",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tags",
+                  "fields": [
+                    {
+                      "name": "tag",
+                      "expression": "`tag`"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "tag",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "AI tag"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Images"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top objects & scenes (AI tags)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "line-ingest-timeline",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_catalog",
+                  "fields": [
+                    {
+                      "name": "hourly(ingested_at)",
+                      "expression": "DATE_TRUNC(\"HOUR\", `ingested_at`)"
+                    },
+                    {
+                      "name": "count(*)",
+                      "expression": "COUNT(`*`)"
+                    },
+                    {
+                      "name": "media_type",
+                      "expression": "`media_type`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "hourly(ingested_at)",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Ingested (hour)"
+                },
+                "y": {
+                  "fieldName": "count(*)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Images"
+                },
+                "color": {
+                  "fieldName": "media_type",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "image",
+                        "color": "#FFAB00"
+                      },
+                      {
+                        "value": "video_frame",
+                        "color": "#AB4057"
+                      }
+                    ]
+                  },
+                  "displayName": "Media type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ingest activity over time"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "section-latest",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Latest ingests — captions & tags written by the vision model"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "table-latest",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_catalog",
+                  "fields": [
+                    {
+                      "name": "filename",
+                      "expression": "`filename`"
+                    },
+                    {
+                      "name": "contains_faces",
+                      "expression": "`contains_faces`"
+                    },
+                    {
+                      "name": "person_count",
+                      "expression": "`person_count`"
+                    },
+                    {
+                      "name": "quality",
+                      "expression": "`quality`"
+                    },
+                    {
+                      "name": "caption",
+                      "expression": "`caption`"
+                    },
+                    {
+                      "name": "tags_str",
+                      "expression": "`tags_str`"
+                    },
+                    {
+                      "name": "megapixels",
+                      "expression": "`megapixels`"
+                    },
+                    {
+                      "name": "ingested_at",
+                      "expression": "`ingested_at`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "filename",
+                    "displayName": "File"
+                  },
+                  {
+                    "fieldName": "contains_faces",
+                    "displayName": "Faces (AI)"
+                  },
+                  {
+                    "fieldName": "person_count",
+                    "displayName": "People"
+                  },
+                  {
+                    "fieldName": "quality",
+                    "displayName": "Quality"
+                  },
+                  {
+                    "fieldName": "caption",
+                    "displayName": "AI caption"
+                  },
+                  {
+                    "fieldName": "tags_str",
+                    "displayName": "AI tags"
+                  },
+                  {
+                    "fieldName": "megapixels",
+                    "displayName": "MP"
+                  },
+                  {
+                    "fieldName": "ingested_at",
+                    "displayName": "Ingested at"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Image catalog (enriched)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ]
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

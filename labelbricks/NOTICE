@@ -1,0 +1,56 @@
+Copyright (2024) Databricks, Inc.
+
+This Software includes software developed at Databricks (https://www.databricks.com/) and its use is subject to the included LICENSE file.
+
+________________
+MODIFICATIONS
+
+This distribution contains a MODIFIED version of the original LabelBricks application.
+The LICENSE requires that modified files carry prominent notices stating they were
+changed; this notice records those changes collectively.
+
+Modified relative to the original:
+  * app.py — annotations persist as JSON sidecars on a Unity Catalog Volume; the
+    Lakebase/PostgreSQL storage layer and its endpoints were removed, and
+    /api/image-statuses was reimplemented over those sidecars.
+  * libraries/ — reduced to ai_client.py (Foundation Model API vision client).
+    db.py, schema.py, storage.py, migration.py and volumes.py were removed.
+  * static/js/ — label autocomplete now uses browser localStorage only;
+    the JSON-to-database migration call was removed.
+  * app.yaml, requirements.in/txt, pyproject.toml — dropped the psycopg dependency
+    and the database environment configuration.
+  * README.md, CLAUDE.md — rewritten to describe the above.
+
+The app is deployed by the Databricks Asset Bundle at the root of this repository,
+which adds an ingest / annotate / export-COCO / train / serve pipeline around it.
+
+________________
+This Software contains code from the following open source projects, licensed under the Apache 2.0 license:
+
+gradio-app/gradio - https://github.com/gradio-app/gradio
+Copyright gradio authors
+License - https://github.com/gradio-app/gradio/blob/main/LICENSE
+
+streamlit/streamlit - https://github.com/streamlit/streamlit
+Copyright streamlit authors
+License - https://github.com/streamlit/streamlit/blob/develop/LICENSE
+Notice - https://github.com/streamlit/streamlit/blob/develop/NOTICES
+
+databricks/databricks-sdk-py - https://github.com/databricks/databricks-sdk-py
+Copyright (2023) Databricks, Inc.
+License - https://github.com/databricks/databricks-sdk-py/blob/main/LICENSE
+Notice - https://github.com/databricks/databricks-sdk-py/blob/main/NOTICE
+
+________________
+This Software contains code from the following open source projects, licensed under the MIT license:
+
+plotly/dash - https://github.com/plotly/dash
+Copyright (c) 2023 Plotly, Inc
+License - https://github.com/plotly/dash/blob/dev/LICENSE
+
+________________
+This Software contains code from the following open source projects, licensed under the BSD 3-clause license:
+
+pallets/flask - https://github.com/pallets/flask
+Copyright 2010 Pallets
+License - https://github.com/pallets/flask/blob/main/LICENSE.txt

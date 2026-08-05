@@ -1,0 +1,15 @@
+# Lakeview dashboard as code — versioned in the repo, deployed via DABs.
+# (Demo talk track: even the BI layer is reviewed, versioned, and reproducible.)
+#
+# The dashboard JSON deliberately contains NO catalog/schema names: its dataset queries
+# reference bare `image_catalog`, and dataset_catalog/dataset_schema below supply the
+# namespace. That keeps the dashboard portable across customers with no find-and-replace.
+resources:
+  dashboards:
+    cv_dataset_health:
+      display_name: "CV Dataset Health — Ingestion & AI Enrichment"
+      file_path: ../dashboards/cv_dataset_health.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true

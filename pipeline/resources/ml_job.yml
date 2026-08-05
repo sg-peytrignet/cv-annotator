@@ -1,0 +1,45 @@
+# ML job: export COCO -> train detector -> register to UC -> deploy to a serving endpoint.
+# Runs on an EXISTING all-purpose cluster (var.existing_cluster_id) to avoid job-cluster
+# cold starts. Notebooks %pip install torch/torchvision so a standard runtime works.
+resources:
+  jobs:
+    cv_train_pipeline:
+      name: cv-train-pipeline
+      tasks:
+        - task_key: export
+          existing_cluster_id: ${var.existing_cluster_id}
+          notebook_task:
+            notebook_path: ../notebooks/02_export_coco.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              images_volume: ${var.images_volume}
+              exports_volume: ${var.exports_volume}
+        - task_key: train
+          existing_cluster_id: ${var.existing_cluster_id}
+          depends_on:
+            - task_key: export
+          notebook_task:
+            notebook_path: ../notebooks/03_train_detection.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              exports_volume: ${var.exports_volume}
+              model_name: ${var.model_name}
+              epochs: "3"
+        - task_key: deploy
+          existing_cluster_id: ${var.existing_cluster_id}
+          depends_on:
+            - task_key: train
+          notebook_task:
+            notebook_path: ../notebooks/04_deploy_serving.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              model_name: ${var.model_name}
+              endpoint_name: ${var.serving_endpoint_name}
+              workload_size: Small
+              # true = no cost while idle, at the price of a cold start on the first
+              # request. Set false before a live demo to keep the endpoint warm.
+              scale_to_zero: "true"
+              alias: champion

@@ -1,0 +1,14 @@
+command:
+  - gunicorn
+  - app:app
+  - -w
+  - 4
+  # Give FMAPI vision calls headroom over gunicorn's default 30s worker timeout.
+  - --timeout
+  - "120"
+
+env:
+  - name: VOLUME_PATH
+    valueFrom: labelbricks-volume
+  - name: VISION_MODEL_ENDPOINT
+    value: databricks-claude-sonnet-4-5

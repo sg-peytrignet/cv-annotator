@@ -1,0 +1,30 @@
+# Demo step 3: automated pipeline. The ingest notebook copies images / extracts video
+# frames into the images Volume and registers rows in image_catalog. Runs on the existing
+# all-purpose cluster (var.existing_cluster_id) to avoid waiting on job-cluster capacity.
+# The notebook %pip installs opencv (pinned numpy<2), so a standard runtime works.
+#
+# Run this job ON DEMAND: drop files into `landing`, then `databricks bundle run cv_ingest`.
+# There is deliberately no file-arrival trigger — provisioning one requires the workspace's
+# storage IAM role to allow s3:GetBucketNotification (it fails with INVALID_STATE otherwise).
+# To enable auto-fire, grant that permission and add a `trigger.file_arrival` block pointing at
+# /Volumes/${var.catalog}/${var.schema}/${var.landing_volume}/.
+resources:
+  jobs:
+    cv_ingest:
+      name: cv-ingest
+      tasks:
+        - task_key: ingest
+          existing_cluster_id: ${var.existing_cluster_id}
+          notebook_task:
+            notebook_path: ../notebooks/01_ingest_pipeline.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              landing_volume: ${var.landing_volume}
+              images_volume: ${var.images_volume}
+              tagging_endpoint: databricks-claude-sonnet-4-5
+              tag_parallelism: "6"
+              frame_interval_sec: "2.0"
+              max_frames_per_video: "40"
+      queue:
+        enabled: true

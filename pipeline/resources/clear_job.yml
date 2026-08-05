@@ -1,0 +1,21 @@
+# Pre-demo reset: wipes annotation JSON sidecars + exports so every image shows as
+# unlabeled again. Run with `databricks bundle run cv_clear`.
+# Set clear_images=true / clear_model=true as task params for a full dataset swap.
+resources:
+  jobs:
+    cv_clear:
+      name: cv-clear
+      tasks:
+        - task_key: clear
+          existing_cluster_id: ${var.existing_cluster_id}
+          notebook_task:
+            notebook_path: ../notebooks/clear_annotations.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              images_volume: ${var.images_volume}
+              landing_volume: ${var.landing_volume}
+              exports_volume: ${var.exports_volume}
+              model_name: ${var.model_name}
+              clear_images: "false"
+              clear_model: "false"

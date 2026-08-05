@@ -1,0 +1,120 @@
+# CV Annotator — one bundle deploying everything:
+#   * the UC namespace (schema + landing/images/exports volumes)
+#   * the LabelBricks annotation app (source in ./labelbricks)
+#   * the on-demand ingest job (pipeline/resources/ingest_job.yml)
+#   * the export->train->edge ML job (pipeline/resources/ml_job.yml)
+#   * the dataset-health Lakeview dashboard (pipeline/resources/dashboards.yml)
+#
+# Validate: databricks bundle validate
+# Deploy:   databricks bundle deploy
+#
+# ---------------------------------------------------------------------------
+# PER-CUSTOMER CONFIG lives in ./customer.env, NOT here. Every variable below can
+# be overridden without editing this file — `databricks bundle` natively reads
+# BUNDLE_VAR_<name> from the environment (see README for the bash/PowerShell
+# one-liners). The defaults here are a working example so a bare
+# `databricks bundle deploy` still works for iteration.
+#
+# Annotations are stored as JSON sidecars on the images Volume
+# (`.labelbricks/annotations/*.json`) — no database to provision.
+# ---------------------------------------------------------------------------
+bundle:
+  name: cv_annotator
+  # resources.schemas / resources.volumes and lifecycle.prevent_destroy need a recent CLI.
+  databricks_cli_version: ">= 0.299.0"
+
+include:
+  - pipeline/resources/*.yml
+
+variables:
+  # NO defaults for the four workspace-specific values below. A wrong-but-plausible default
+  # (e.g. a leftover demo catalog) would silently deploy into the wrong place; with no default
+  # the deploy fails instead. Set them via customer.env / --var (see README).
+  catalog:
+    description: Unity Catalog name (must already exist — it needs a storage location)
+  schema:
+    description: Schema name (created by this bundle)
+    default: cv_annotator
+  landing_volume:
+    description: Volume for raw uploads (ingest source)
+    default: landing
+  images_volume:
+    description: Curated images volume (annotation source)
+    default: images
+  exports_volume:
+    description: Volume for COCO exports
+    default: exports
+  app_name:
+    description: Databricks App name (<=30 chars, lowercase/hyphens)
+    default: cv-labeler
+  model_name:
+    description: UC model name for the trained detector
+    default: object_detector
+  serving_endpoint_name:
+    description: >-
+      Model Serving endpoint name for the trained detector. Letters/numbers/hyphens only.
+      Leave blank to let the notebook derive it as <model_name>-endpoint.
+    default: ""
+  existing_cluster_id:
+    description: All-purpose cluster id to run the jobs on (avoids ~10-min cold starts)
+  warehouse_id:
+    description: SQL warehouse id for the dataset-health Lakeview dashboard
+
+resources:
+  # UC namespace as code — replaces the imperative `databricks schemas/volumes create`
+  # calls the old installer script made.
+  schemas:
+    cv_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: "CV annotator demo — images, annotations, exports"
+      lifecycle:
+        prevent_destroy: true
+
+  volumes:
+    # prevent_destroy: these hold customer images and exports. Without it, a
+    # `bundle destroy` (or a renamed schema/volume variable) would propose dropping
+    # them. Never document `bundle destroy` for a customer deployment.
+    landing:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.cv_schema.name}
+      name: ${var.landing_volume}
+      comment: "Raw uploads — ingest source"
+      lifecycle:
+        prevent_destroy: true
+    images:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.cv_schema.name}
+      name: ${var.images_volume}
+      comment: "Curated images + .labelbricks annotation JSON sidecars"
+      lifecycle:
+        prevent_destroy: true
+    exports:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.cv_schema.name}
+      name: ${var.exports_volume}
+      comment: "COCO exports (training datasets)"
+      lifecycle:
+        prevent_destroy: true
+
+  apps:
+    labelbricks:
+      name: ${var.app_name}
+      description: "CV Annotator — image annotation with AI-assisted labeling"
+      source_code_path: ./labelbricks
+      resources:
+        - name: labelbricks-volume
+          uc_securable:
+            securable_type: VOLUME
+            securable_full_name: ${var.catalog}.${var.schema}.${var.images_volume}
+            permission: WRITE_VOLUME
+
+targets:
+  default:
+    default: true
+    # Deliberately NO `mode:` key. `mode: development` prefixes resource names with
+    # dev_<user>_, which would create the customer's UC schema as dev_someone_<schema>.
+    # Omitting mode keeps every name exactly as configured above.
+    #
+    # The target workspace is selected by DATABRICKS_CONFIG_PROFILE (set in
+    # customer.env) or the default CLI profile — no hardcoded profile here.
