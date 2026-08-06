@@ -195,7 +195,7 @@ https://<workspace>/serving-endpoints/<model>-endpoint/invocations
 
 ## The notebooks
 
-All live in `pipeline/notebooks/`. They are plain Databricks notebooks — the jobs run them in order,
+All live in `workspace/user/.bundle/cv-annotator/default/files/pipeline/notebooks/`. They are plain Databricks notebooks — the jobs run them in order,
 but each one is independently runnable with widgets if you want to step through it in the UI.
 
 | Notebook | Job / task | What it does |
