@@ -19,7 +19,7 @@ Modified relative to the original:
     the JSON-to-database migration call was removed.
   * app.yaml, requirements.in/txt, pyproject.toml — dropped the psycopg dependency
     and the database environment configuration.
-  * README.md, CLAUDE.md — rewritten to describe the above.
+  * README.md — rewritten to describe the above.
 
 The app is deployed by the Databricks Asset Bundle at the root of this repository,
 which adds an ingest / annotate / export-COCO / train / serve pipeline around it.
