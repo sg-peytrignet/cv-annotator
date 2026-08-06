@@ -305,8 +305,3 @@ uv run --with pytest python -m pytest pipeline/tests/ -v
 | Status badges all show "pending" | Statuses come from the annotation sidecars — confirm `.labelbricks/annotations/` exists and the app SP can read the images volume. |
 | Export job finds no labels | Annotate at least one image first; training additionally needs **≥2** labeled images. |
 | Dashboard widgets error | Run `cv_ingest` at least once — the widgets query `image_catalog`, which the ingest job creates. |
-
-For the hard-won constraints (numpy pin, `weights=None`, batch-size ≥2) and app-internals notes,
-see **`labelbricks/CLAUDE.md`** and **`CLAUDE.md`**.
-
----
