@@ -1,0 +1,6 @@
+# Force LF for anything executed by python inside the Linux app/job container.
+# A CRLF checkout on Windows otherwise yields subtle runtime breakage.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
