@@ -89,7 +89,8 @@ databricks auth login --host <your-workspace-host>   # OAuth U2M; prompts for a 
 cd .. && databricks bundle validate
 cd .. && databricks bundle deploy
 
-# If the app is still serving old code after a deploy, restart it by key:
+# REQUIRED after every deploy (by resource key, not app name): deploy leaves the app
+# stopped with no active deployment, and this is also how app code changes go live.
 cd .. && databricks bundle run labelbricks
 
 # Testing (COCO converter unit tests live at the repo root)
@@ -180,14 +181,15 @@ kept: cross-session review status, which lives in each JSON sidecar.
 - **Flask session is unreliable in deployed Databricks Apps.** The `app.secret_key = os.urandom()` changes on restart, and Gunicorn workers may not share session state. Always pass critical context (like `volumePath`) from the frontend in request bodies/query params, with session as fallback only.
 - **Pre-create Volume directories before upload.** `w.files.upload()` does not auto-create parent directories. Use `w.files.create_directory()` wrapped in try/except (idempotent — succeeds if already exists).
 - **Draw-then-label is the natural annotation UX.** Users draw a shape first, then want to label it. A floating label popup near the annotation (with recent label chips) is the right pattern. Do not require label selection before drawing.
-- **App deploy may need a second step.** `databricks bundle deploy` syncs the source and creates/updates
-  the app resource, but under the default (terraform) engine it does not necessarily activate the new
-  source on the running app. If the app serves stale code, run `databricks bundle run labelbricks` —
-  it deploys the source and starts the app, and needs no hand-built `/Workspace/Users/.../.bundle/...`
-  path (which is what made the old `databricks apps deploy --source-code-path ...` invocation so
-  error-prone). **This has not been re-verified on CLI v0.299 against a live workspace** — confirm by
-  checking `active_deployment.source_code_path` / `create_time` in `databricks apps get <name> -o json`
-  after a deploy, and update this note with the finding.
+- **App deploy IS a two-step — verified on CLI v0.299 against a live workspace (Aug 2026).**
+  `databricks bundle deploy` syncs the source and creates the app resource, but leaves it
+  `compute_status: STOPPED`, `app_status: UNAVAILABLE`, and **`active_deployment: null`** — the app
+  is not merely serving stale code, it is not serving at all. `databricks bundle run labelbricks`
+  then starts the compute and creates the deployment (observed: `SUCCEEDED`, with
+  `source_code_path` = `/Workspace/Users/<me>/.bundle/cv_annotator/default/files/labelbricks`,
+  ~3–5 min including `pip install`). It needs no hand-built `/Workspace/Users/.../.bundle/...` path,
+  which is what made the old `databricks apps deploy --source-code-path ...` invocation so
+  error-prone. Always document both commands; never present `bundle run` as conditional.
 - **FMAPI has a ~4MB request body limit.** Base64-encoding inflates image size by ~33%, so a 3MB image becomes ~4MB in the request. Always compress images >2.5MB raw bytes before sending.
 - **FMAPI pay-per-token endpoints are workspace-shared.** `databricks-claude-sonnet-4-5` does not need a `serving_endpoint` resource in `databricks.yml`. The app SP has access by default. Only add a resource declaration if you hit permission errors.
 - **Do not reintroduce `databricks-openai`.** It transitively pulls in `databricks-vectorsearch`, whose unpinned 0.74 upgrade removed `VectorSearchIndex` and broke AI Suggest in production. The thin REST client (`WorkspaceClient()` auth + `requests`) needs no extra auth setup and has no fragile transitive deps.
@@ -205,4 +207,14 @@ kept: cross-session review status, which lives in each JSON sidecar.
 - **`resources.schemas` and `resources.volumes` are supported** (CLI v0.299) — the UC namespace is
   bundle config, not shell commands. Give volumes `lifecycle: prevent_destroy` since they hold
   customer data, and do **not** use `mode: development` on a target that owns a UC schema (it
-  prefixes the schema name with `dev_<user>_`).
+  prefixes the schema name with `dev_<user>_`). Verified live: with no `mode:` key the schema and
+  volumes are created with exactly the configured names, unprefixed.
+- **Reference bundle-owned resources by resource path, not by rebuilding their name from variables.**
+  The app's volume grant was `securable_full_name: ${var.catalog}.${var.schema}.${var.images_volume}`,
+  which resolves to a *plain string*. Terraform therefore saw no dependency between the app and the
+  volume, created them concurrently, and the deploy failed with
+  `failed to create app: Volume '<catalog>.<schema>.images' does not exist`. Using
+  `${resources.volumes.images.id}` (the id *is* `catalog.schema.name`) emits a real
+  `${databricks_volume.images.id}` reference and forces volume-before-app ordering. Inspect
+  `.databricks/bundle/<target>/terraform/bundle.tf.json` to tell the two apart — but note
+  **`bundle validate` does not regenerate that file**; run `databricks bundle plan` to refresh it.

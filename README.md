@@ -1,9 +1,9 @@
 # CV Annotator on Databricks
 
-An end-to-end, **governed** computer-vision annotation workflow that deploys into a databricks
-workspace with **one command**: ingest images/video → govern in Unity Catalog → annotate
-(**LabelBricks** app + AI-assisted labeling) → export COCO → train a detector → register to UC →
-deploy to a Model Serving endpoint.
+An end-to-end, **governed** computer-vision annotation workflow that deploys into a Databricks
+workspace with **two commands** (`bundle deploy` then `bundle run labelbricks`): ingest images/video →
+govern in Unity Catalog → annotate (**LabelBricks** app + AI-assisted labeling) → export COCO → train
+a detector → register to UC → deploy to a Model Serving endpoint.
 
 The whole thing is one Databricks Asset Bundle. All customer-specific values live in **one file**
 (`customer.env`) — you do not edit `databricks.yml` or `app.yaml`.
@@ -34,19 +34,7 @@ Follow steps 0–5 below in order for a fresh workspace.
 
 ## Step 0 — Install and authenticate the Databricks CLI
 
-You need **v0.299 or newer** (older versions cannot create UC volumes/schemas from a bundle).
-
-```bash
-# macOS / Linux (Homebrew)
-brew tap databricks/tap && brew install databricks
-
-# Or, any platform — official install script
-curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-```
-```powershell
-# Windows
-winget install Databricks.DatabricksCLI
-```
+You need the Databricks CLI to deploy the application https://docs.databricks.com/aws/en/dev-tools/cli/install
 
 Check the version, then log in to the workspace you want to deploy into:
 
@@ -86,16 +74,12 @@ export DATABRICKS_CONFIG_PROFILE=<PROFILE>
 
 ## Step 1 — Configure
 
-Only one thing must already exist in the workspace: a **Unity Catalog catalog** (it needs a storage
-location, so the bundle cannot create it). Everything else is created for you.
-
 ```bash
 cp customer.env.example customer.env
-$EDITOR customer.env
 ```
+Open the customer.env file and input your values
 
-Only these four values are required — everything else (schema, volume names, app name, model name)
-has a working default and is listed, commented out, at the bottom of the file:
+Only these four values are required
 
 | Value | How to get it |
 |---|---|
@@ -110,38 +94,24 @@ has a working default and is listed, commented out, at the bottom of the file:
 set -a; source customer.env; set +a     # BUNDLE_VAR_* are read natively by the CLI
 databricks bundle validate              # catches config errors before touching the workspace
 databricks bundle deploy
+databricks bundle run labelbricks       # REQUIRED: starts the app and activates its code
 ```
 
-This creates, in one shot: the UC **schema**, the **`landing` / `images` / `exports` volumes**, the
-**app** (with a `WRITE_VOLUME` grant on `images`), the three **jobs**, and the **dashboard**. It is
-idempotent — re-run it after any code change.
+`deploy` creates, in one shot: the UC **schema**, the **`landing` / `images` / `exports` volumes**,
+the **app** (with a `WRITE_VOLUME` grant on `images`), the three **jobs**, and the **dashboard**. It
+is idempotent — re-run it after any code change.
 
-Get the app URL:
+> **Both commands are needed.** `bundle deploy` creates the app resource but leaves it **stopped with
+> no active deployment** — verified on CLI v0.299. `bundle run labelbricks` starts the compute and
+> activates the source, and it is what you re-run after any app code change too. `labelbricks` is the
+> bundle *resource key*, not the app name, so it does not change when you set `BUNDLE_VAR_app_name`.
+> Expect roughly 3–5 minutes on first start (compute provisioning + `pip install`).
+
+Get the app URL (also printed at the end of `bundle run`):
 
 ```bash
 databricks apps get "$BUNDLE_VAR_app_name" -o json | grep '"url"'
 ```
-
-> If the app serves stale code after a redeploy, restart it: `databricks bundle run labelbricks`.
-
-### On Windows (PowerShell) — no bash, no Docker, no Python needed
-
-`databricks bundle deploy` is a single cross-platform binary. `customer.env` is a bash file, so set
-the same values as PowerShell environment variables instead and run the identical command:
-
-```powershell
-$env:DATABRICKS_CONFIG_PROFILE="<PROFILE>"
-$env:BUNDLE_VAR_catalog="my_catalog"
-$env:BUNDLE_VAR_existing_cluster_id="0123-456789-abcdefgh"
-$env:BUNDLE_VAR_warehouse_id="1234567890abcdef"
-databricks bundle deploy
-```
-
-Or pass them inline on any platform:
-```bash
-databricks bundle deploy --var="catalog=my_catalog,existing_cluster_id=...,warehouse_id=..."
-```
-
 ---
 
 ## Step 3 — Get images in (ingest)
@@ -153,11 +123,9 @@ There are **two volumes with different jobs**, and this is the part most easily 
 | `landing` | **You upload here.** Raw images + videos, untouched. |
 | `images` | **The app reads here.** Curated output of the ingest job, plus annotation sidecars. |
 
-Uploading straight into `images` *works* for a quick look, but skips AI tagging and the
-`image_catalog` table — so the dashboard stays empty. Use the ingest path:
 
 **3a. Upload to `landing`** — via the Catalog Explorer UI (*Catalog → your catalog → schema →
-`landing` → Upload*), or the CLI (note the required `dbfs:` prefix):
+`landing` → Upload*), or the CLI:
 
 ```bash
 databricks fs cp ./my-images \
@@ -165,13 +133,8 @@ databricks fs cp ./my-images \
   --recursive --profile "$DATABRICKS_CONFIG_PROFILE"
 ```
 
-No images handy? Generate synthetic ones (needs local Python + `databricks-sdk`):
-```bash
-python scripts/seed_demo_data.py --profile "$DATABRICKS_CONFIG_PROFILE" \
-  --catalog "$BUNDLE_VAR_catalog" --schema "$BUNDLE_VAR_schema" --generate 12
-```
-
 **3b. Run the ingest job:**
+You can run the ingest job either from the UI (Jobs and pipeline > cv-ingest > run) or via this command:
 
 ```bash
 databricks bundle run cv_ingest
@@ -180,13 +143,8 @@ databricks bundle run cv_ingest
 It copies images into `images`, extracts video frames (one row per frame), **AI-tags** every image
 via FMAPI Claude (caption, object tags, person count, face flag, quality), and registers everything
 in the `image_catalog` Delta table. It is idempotent — files already ingested are skipped, so you can
-re-run it after each upload.
+re-run it after each upload..
 
-> **Ingest is on-demand, not automatic.** There is deliberately no file-arrival trigger: provisioning
-> one requires the workspace's storage IAM role to permit `s3:GetBucketNotification`, which many
-> workspaces don't grant (it fails with `INVALID_STATE`). To enable auto-fire, grant that permission
-> and add a `trigger.file_arrival` block to `pipeline/resources/ingest_job.yml` — the file shows
-> exactly where.
 
 Confirm it worked:
 ```sql
@@ -254,40 +212,6 @@ but each one is independently runnable with widgets if you want to step through 
 
 ---
 
-## Cloud portability (AWS / Azure / GCP)
-The install is cloud-agnostic — no cloud URLs, regions, or node types are hardcoded. Jobs run on
-the existing all-purpose cluster you name in `customer.env`, so there is no cloud-specific
-node-type value to get right.
-
----
-
-## Configuration — `customer.env`
-
-Copy `customer.env.example` → `customer.env` and fill it in. It is **gitignored** (it names
-customer workspaces) — never commit it. Every field:
-
-| Variable | Meaning |
-|----------|---------|
-| `DATABRICKS_CONFIG_PROFILE` | CLI profile pointing at the customer workspace. Selects the deploy target. |
-| `BUNDLE_VAR_catalog` | UC catalog (**must already exist**). |
-| `BUNDLE_VAR_schema` | Schema — created by the bundle. |
-| `BUNDLE_VAR_*_volume` | Volume names (`landing`, `images`, `exports`) — created by the bundle. |
-| `BUNDLE_VAR_app_name` | App name — ≤30 chars, lowercase/hyphens, unique in the workspace. |
-| `BUNDLE_VAR_existing_cluster_id` | All-purpose cluster the jobs run on. |
-| `BUNDLE_VAR_warehouse_id` | SQL warehouse for the dataset-health dashboard. |
-| `BUNDLE_VAR_model_name` | Name for the trained detector registered by the ML pipeline. |
-
-`BUNDLE_VAR_<name>` is read natively by `databricks bundle` and overrides the matching variable's
-default in `databricks.yml`.
-
-**`catalog`, `existing_cluster_id` and `warehouse_id` have no defaults on purpose** — a
-wrong-but-plausible default would silently deploy into the wrong place. If you forget one, the value
-stays literal (e.g. a resource named `${var.catalog}`) and the deploy fails. Volume names, schema,
-app name and model name do have working defaults.
-
-> **Do not run `databricks bundle destroy`** against a customer deployment. The volumes are bundle
-> resources holding real images and exports; they carry `prevent_destroy`, but destroy is still the
-> wrong tool here.
 
 ---
 
@@ -300,18 +224,6 @@ The app writes one JSON sidecar per annotated image:
   .labelbricks/annotations/<image>.jpg.json    # boxes, labels, status, notes, image dims
   .labelbricks/composites/<image>.jpg.png      # flattened preview
 ```
-
-Each sidecar records `imageWidth` / `imageHeight` / `displayScale` alongside the shapes, because
-coordinates are stored in **scaled display space**. `02_export_coco.py` divides by `display_scale`
-to recover true image pixels — `pipeline/lib/coco_utils.py` is the unit-tested converter.
-
-Consequences of this JSON-only design, worth knowing up front:
-
-- **Review status survives sessions.** Status lives in each sidecar; the app reads them back to
-  paint the sidebar badges.
-- **Label vocabulary is per-browser.** Recently-used labels are kept in `localStorage`, so
-  annotators do not share an autocomplete list. Fine for one or a few annotators; for a larger
-  multi-annotator pilot, agree on a label list up front to avoid drift.
 
 ---
 
@@ -327,14 +239,14 @@ labelbricks/              Annotation app (Flask + Fabric.js)
   libraries/ai_client.py    FMAPI vision client (AI Suggest)
 
 pipeline/
-  notebooks/              01 ingest · 02 export COCO · 03 train · 04 edge · 05 visualize
+  notebooks/              01 ingest · 02 export COCO · 03 train · 04 deploy serving · 05 visualize
                           clear_annotations (reset)
   resources/              DABs job definitions (ingest, train, clear, dashboard)
   dashboards/             Lakeview dashboard as code
   lib/coco_utils.py + tests/   COCO converter + unit tests
 
 scripts/
-  seed_demo_data.py       Upload/generate demo images into the landing volume
+  seed_demo_data.py       Upload a local folder of images/video into the landing volume
   seed_annotations.py     Pre-bake annotation sidecars (to train without labeling by hand)
 
 docs/
@@ -358,7 +270,7 @@ databricks bundle run labelbricks
 # Ingest whatever is sitting in the landing volume
 databricks bundle run cv_ingest
 
-# Run the export -> train -> edge pipeline
+# Run the export -> train -> register -> serve pipeline
 databricks bundle run cv_train_pipeline
 
 # Reset annotation state before a demo
@@ -386,9 +298,9 @@ uv run --with pytest python -m pytest pipeline/tests/ -v
 | `Source IP ... blocked by Databricks IP ACL` | The workspace IP access list rejected your egress IP — allow-list it or wait for rotation. |
 | App blank / 500 | `databricks apps logs <app-name>`; confirm the `labelbricks-volume` resource is bound. |
 | App shows no images | You're likely pointed at `landing`. Pick the **`images`** volume — and run `cv_ingest` if you haven't. |
-| Volume browser is empty / "Unity Catalog denied access" | The app browses UC as its **own service principal**. The bundle grants it `WRITE_VOLUME` on `images`, but the cascading picker also needs `USE CATALOG` on the catalog and `USE SCHEMA` on the schema. Get the SP id from `databricks apps get <app-name> -o json` (`service_principal_client_id`) and grant it those two, e.g. `GRANT USE CATALOG ON CATALOG <catalog> TO \`<sp-id>\`;` |
+| Volume browser is empty / "Unity Catalog denied access" | The app browses UC as its **own service principal**, and the `WRITE_VOLUME` grant on `images` is normally enough — the browser was verified working with no extra grants. If your metastore is locked down more tightly, the cascading picker also needs `USE CATALOG` on the catalog and `USE SCHEMA` on the schema: get the SP id from `databricks apps get <app-name> -o json` (`service_principal_client_id`) and run `GRANT USE CATALOG ON CATALOG <catalog> TO \`<sp-id>\`;`. Only the `images` volume appears by design (least privilege). |
 | Ingest job fails on `dbutils.fs` / opencv | The cluster in `BUNDLE_VAR_existing_cluster_id` must be running and UC-enabled; the notebook `%pip install`s opencv with `numpy<2` pinned. |
-| App still running old code after deploy | `databricks bundle run labelbricks` (the bundle resource key, not the app name). |
+| App stopped / `UNAVAILABLE`, or still running old code after deploy | `databricks bundle run labelbricks` (the bundle resource key, not the app name). `bundle deploy` alone never starts the app. |
 | AI Suggest fails | Confirm FMAPI `databricks-claude-sonnet-4-5` is available; large images are auto-compressed. |
 | Status badges all show "pending" | Statuses come from the annotation sidecars — confirm `.labelbricks/annotations/` exists and the app SP can read the images volume. |
 | Export job finds no labels | Annotate at least one image first; training additionally needs **≥2** labeled images. |
@@ -398,18 +310,3 @@ For the hard-won constraints (numpy pin, `weights=None`, batch-size ≥2) and ap
 see **`labelbricks/CLAUDE.md`** and **`CLAUDE.md`**.
 
 ---
-
-## License
-
-The annotation app under `labelbricks/` is a **modified** version of the Databricks LabelBricks
-application. Its license and attribution notices apply to this whole distribution:
-
-- **`labelbricks/LICENSE`** — the governing license. In short: you may use, modify and redistribute
-  the materials **in connection with your use of the Databricks Services**, you must pass this
-  license on to any recipient, and modified files must be marked as changed.
-- **`labelbricks/NOTICE`** — copyright and third-party attributions, plus a summary of what this
-  distribution changed relative to the original (chiefly: JSON-on-Volume storage instead of a
-  PostgreSQL layer).
-
-The surrounding pipeline (`pipeline/`, `databricks.yml`, `scripts/`) is distributed on the same
-terms. Read `labelbricks/LICENSE` before redistributing.

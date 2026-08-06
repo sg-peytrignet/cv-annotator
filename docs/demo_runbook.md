@@ -24,28 +24,24 @@ cp customer.env.example customer.env   # then edit: profile, catalog, schema, ap
 set -a; source customer.env; set +a
 databricks bundle validate
 databricks bundle deploy
+databricks bundle run labelbricks       # REQUIRED: deploy leaves the app stopped
 ```
 
-This creates the UC schema + `landing`/`images`/`exports` volumes, the app, the three jobs, and the
-dashboard. Get the app URL:
+`deploy` creates the UC schema + `landing`/`images`/`exports` volumes, the app, the three jobs, and
+the dashboard — but leaves the app **stopped with no active deployment**, so `bundle run labelbricks`
+is a required second step (~3–5 min on first start), not just a stale-code fix. Get the app URL:
 
 ```bash
 databricks apps get "$BUNDLE_VAR_app_name" -o json | grep '"url"'
 ```
-
-If the app serves stale code after a redeploy, restart it: `databricks bundle run labelbricks`.
 
 Open the app → **Browse** → pick `<catalog>.<schema>.images` → annotate a test image → **AI Suggest**
 to confirm both the Volume wiring and FMAPI access.
 
 ### 1.3 Seed demo data
 ```bash
-# Real images make the best demo:
 python scripts/seed_demo_data.py --profile <PROFILE> --catalog <catalog> --schema <schema> \
     --local-dir ~/my_samples
-
-# Or smoke-test the plumbing with synthetic placeholders:
-python scripts/seed_demo_data.py --profile <PROFILE> --catalog <catalog> --schema <schema> --generate 12
 ```
 
 Then process them (the job is on-demand — there is no file-arrival trigger):

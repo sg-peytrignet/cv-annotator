@@ -5,9 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 End-to-end computer-vision demo on Databricks: ingest images/video → govern in Unity Catalog →
-annotate (LabelBricks app + AI Suggest) → export COCO → train a detector → register to UC → export
-to edge. One DABs bundle (`databricks.yml`) deploys the UC namespace, the app, all jobs, and the
-dashboard.
+annotate (LabelBricks app + AI Suggest) → export COCO → train a detector → register to UC → deploy to
+a Model Serving endpoint. One DABs bundle (`databricks.yml`) deploys the UC namespace, the app, all
+jobs, and the dashboard.
 
 Key documents — read before making changes:
 - `README.md` — install/config contract and the customer-facing story.
@@ -23,12 +23,13 @@ set -a; source customer.env; set +a      # BUNDLE_VAR_* are read natively by the
 databricks bundle validate
 databricks bundle deploy
 
-# If the app is still serving old code after a deploy, restart it:
+# REQUIRED after deploy: `bundle deploy` leaves the app STOPPED with no active deployment.
+# This starts it and activates the code. Also the way to pick up any app code change.
 databricks bundle run labelbricks
 
 # Jobs
 databricks bundle run cv_ingest          # landing -> images + image_catalog (AI-tagged)
-databricks bundle run cv_train_pipeline  # export COCO -> train -> edge
+databricks bundle run cv_train_pipeline  # export COCO -> train -> register -> serving endpoint
 databricks bundle run cv_clear           # reset annotation state before a demo
 
 # Tests (pure-Python, no Databricks connection needed).
@@ -59,7 +60,7 @@ Data flow across the components:
 2. **Annotate** — the `labelbricks/` Flask app reads the `images` Volume and writes annotations as
    **JSON sidecars** under `{images}/.labelbricks/annotations/`. AI Suggest calls FMAPI Claude via a
    thin REST client.
-3. **Export → train → edge** — the `cv_train_pipeline` job chains `02_export_coco.py` (annotation
+3. **Export → train → serve** — the `cv_train_pipeline` job chains `02_export_coco.py` (annotation
    JSON → COCO), `03_train_detection.py` (SSDLite detector, MLflow run, UC model registration), and
    `04_deploy_serving.py` (alias the version, create/update a Model Serving endpoint).
 

@@ -83,7 +83,7 @@ walkthrough. In short, from the **repo root**:
 ```bash
 databricks bundle deploy --var="catalog=my_catalog,existing_cluster_id=...,warehouse_id=..."
 
-# Start / restart the app so it picks up the deployed code
+# Required: deploy leaves the app stopped. This starts it and activates the code.
 databricks bundle run labelbricks
 ```
 

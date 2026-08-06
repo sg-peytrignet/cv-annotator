@@ -106,7 +106,12 @@ resources:
         - name: labelbricks-volume
           uc_securable:
             securable_type: VOLUME
-            securable_full_name: ${var.catalog}.${var.schema}.${var.images_volume}
+            # Reference the volume RESOURCE, not ${var.catalog}.${var.schema}.${var.images_volume}.
+            # The variable form resolves to a plain string, so Terraform sees no dependency between
+            # the app and the volume, creates them concurrently, and the app fails with
+            # "Volume '<catalog>.<schema>.images' does not exist". Referencing the resource id
+            # (which is exactly catalog.schema.name) forces volume-before-app ordering.
+            securable_full_name: ${resources.volumes.images.id}
             permission: WRITE_VOLUME
 
 targets:

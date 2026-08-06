@@ -3,9 +3,12 @@
 Seed LabelBricks-format annotation JSON onto the images Volume so the export→train→edge
 pipeline has labeled data WITHOUT manual clicking (for demo pre-bake / dry-run only).
 
-Writes one box per image ("person") aligned to the synthetic figure, in the exact JSON
-shape the app's /api/save produces, to {images}/.labelbricks/annotations/{file}.json.
-The export notebook reads exactly these files. display_scale=1.0 (full-size).
+Writes one centered box per image ("person"), in the exact JSON shape the app's /api/save
+produces, to {images}/.labelbricks/annotations/{file}.json. The export notebook reads
+exactly these files. display_scale=1.0 (full-size).
+
+The boxes are placed by fixed image fractions, NOT by looking at the image — they exercise
+the export/train plumbing, they are not meaningful labels.
 
 Real annotations come from the app UI; this is only to pre-bake a model without labeling by hand.
 
@@ -51,7 +54,7 @@ def main() -> None:
         # true dims
         raw = w.files.download(path).contents.read()
         wpx, hpx = Image.open(io.BytesIO(raw)).size
-        # "person" box aligned to the synthetic figure (30-70% w, 25-85% h)
+        # Centered "person" box by image fraction (30-70% w, 25-85% h)
         box = {
             "left": round(0.30 * wpx), "top": round(0.25 * hpx),
             "width": round(0.40 * wpx), "height": round(0.60 * hpx),
