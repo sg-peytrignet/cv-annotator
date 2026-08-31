@@ -154,32 +154,54 @@ with mlflow.start_run(run_name="office-detector-dummy") as run:
         mlflow.log_metric("train_loss", epoch_loss, step=epoch)
         print(f"epoch {epoch+1}/{EPOCHS}  loss={epoch_loss:.3f}")
 
-    # Log + register to Unity Catalog. UC requires an explicit model signature
-    # (input + output type specs). Detection output is variable-length lists of dicts,
-    # so we declare a nominal signature: images in, boxes out.
-    import numpy as np
+    # Log + register to Unity Catalog as a PyFunc.
+    # NOT mlflow.pytorch: that flavor rejects dict input and expects a single output
+    # tensor, but a detector takes a LIST of CHW tensors and returns a LIST of dicts.
+    # This wrapper does both conversions, so the endpoint takes base64-encoded images.
     from mlflow.models.signature import ModelSignature
-    from mlflow.types.schema import Schema, TensorSpec
+    from mlflow.types.schema import Schema, ColSpec
 
-    signature = ModelSignature(
-        inputs=Schema([TensorSpec(np.dtype(np.float32), (-1, 3, -1, -1), "images")]),
-        outputs=Schema([TensorSpec(np.dtype(np.float32), (-1, 4), "boxes")]),
-    )
-    model.eval()
-    # Force pickle serialization: newer MLflow otherwise auto-selects the 'pt2'
-    # traced-graph format for a TensorSpec signature, which requires an input_example
-    # and virtually executes model.forward — fragile for a detector returning
-    # variable-length list-of-dict outputs. Pickle matches the original behavior.
-    mlflow.pytorch.log_model(
-        pytorch_model=model,
-        artifact_path="model",
-        registered_model_name=UC_MODEL,
-        signature=signature,
-        serialization_format="pickle",
-        pip_requirements=["torch", "torchvision", "pillow"],
-    )
-    # Persist label mapping as a run artifact for downstream inference/serving.
     label_map = {str(catid_to_label[c["id"]]): c["name"] for c in cats}
+    model.eval()
+
+    class Detector(mlflow.pyfunc.PythonModel):
+        """{"image_b64": <base64 image>} in -> {"boxes", "scores", "labels"} out.
+
+        Boxes are in the original image's pixel space; labels are class names.
+        """
+
+        def __init__(self, model, label_map):
+            self.model, self.label_map = model, label_map
+
+        def predict(self, context, model_input, params=None):
+            import base64, io, torch
+            import torchvision.transforms.functional as TF
+            from PIL import Image
+
+            imgs = [TF.to_tensor(Image.open(io.BytesIO(base64.b64decode(b))).convert("RGB"))
+                    for b in model_input["image_b64"].tolist()]
+            with torch.no_grad():
+                outputs = self.model(imgs)
+
+            results = []
+            for o in outputs:
+                keep = o["scores"] > 0.05  # random-init weights score low; stay permissive
+                results.append({
+                    "boxes": o["boxes"][keep].tolist(),
+                    "scores": o["scores"][keep].tolist(),
+                    "labels": [self.label_map.get(str(int(i)), "unknown")
+                               for i in o["labels"][keep].tolist()],
+                })
+            return results
+
+    mlflow.pyfunc.log_model(
+        artifact_path="model",
+        python_model=Detector(model, label_map),
+        registered_model_name=UC_MODEL,
+        signature=ModelSignature(inputs=Schema([ColSpec("string", "image_b64")])),
+        pip_requirements=["torch", "torchvision", "pillow", "pandas"],
+    )
+    # Persist label mapping as a run artifact too, for anyone reading the run.
     mlflow.log_dict(label_map, "label_map.json")
     run_id = run.info.run_id
 

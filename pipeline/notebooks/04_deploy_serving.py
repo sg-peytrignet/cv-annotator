@@ -137,24 +137,29 @@ print(f"UI           : {host}/ml/endpoints/{ENDPOINT}")
 
 # MAGIC %md ## Sanity inference against the live endpoint
 # MAGIC
-# MAGIC The detector takes a list of CHW float tensors, so a single random 3x64x64 "image" is enough to
-# MAGIC prove the endpoint is wired up and returns predictions. A cold start can make this first call
-# MAGIC slow — that is expected with `scale_to_zero_enabled`.
+# MAGIC The endpoint takes base64-encoded image bytes in an `image_b64` column, so a small generated
+# MAGIC PNG is enough to prove it is wired up and returns predictions. A cold start can make this first
+# MAGIC call slow — that is expected with `scale_to_zero_enabled`.
 
 # COMMAND ----------
 
+import base64, io
 import numpy as np
+from PIL import Image
 
 try:
-    dummy = np.random.rand(1, 3, 64, 64).astype("float32").tolist()
-    resp = w.serving_endpoints.query(name=ENDPOINT, inputs=dummy)
+    buf = io.BytesIO()
+    Image.fromarray((np.random.rand(64, 64, 3) * 255).astype("uint8")).save(buf, format="PNG")
+    resp = w.serving_endpoints.query(
+        name=ENDPOINT,
+        dataframe_records=[{"image_b64": base64.b64encode(buf.getvalue()).decode()}],
+    )
     preds = resp.predictions
     print("Inference OK. Raw response (truncated):")
     print(str(preds)[:600])
 except Exception as e:
-    # Don't fail the job: the endpoint may still be warming, and the detector's
-    # variable-length list-of-dict output can need a client-side shape the demo
-    # doesn't pin down. The endpoint itself is already deployed at this point.
+    # Don't fail the job: the endpoint may still be warming after a cold start.
+    # The endpoint itself is already deployed at this point.
     print(f"Sanity inference did not return cleanly: {type(e).__name__}: {str(e)[:300]}")
     print("The endpoint is deployed — check the Serving UI and retry the query if it was cold.")
 
@@ -166,7 +171,7 @@ except Exception as e:
 # MAGIC curl -X POST \
 # MAGIC   -H "Authorization: Bearer $DATABRICKS_TOKEN" \
 # MAGIC   -H "Content-Type: application/json" \
-# MAGIC   -d '{"inputs": [[[[0.1, 0.2], [0.3, 0.4]]]]}' \
+# MAGIC   -d "{\"dataframe_records\": [{\"image_b64\": \"$(base64 -i photo.jpg | tr -d '\n')\"}]}" \
 # MAGIC   https://<workspace>/serving-endpoints/<endpoint>/invocations
 # MAGIC ```
 # MAGIC
