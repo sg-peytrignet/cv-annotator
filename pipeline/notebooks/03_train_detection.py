@@ -159,7 +159,7 @@ with mlflow.start_run(run_name="office-detector-dummy") as run:
     # tensor, but a detector takes a LIST of CHW tensors and returns a LIST of dicts.
     # This wrapper does both conversions, so the endpoint takes base64-encoded images.
     from mlflow.models.signature import ModelSignature
-    from mlflow.types.schema import Schema, ColSpec
+    from mlflow.types.schema import Array, ColSpec, DataType, Schema
 
     label_map = {str(catid_to_label[c["id"]]): c["name"] for c in cats}
     model.eval()
@@ -194,11 +194,22 @@ with mlflow.start_run(run_name="office-detector-dummy") as run:
                 })
             return results
 
+    # UC rejects a signature with only inputs, so both halves are declared. The output
+    # is one row per image sent, with variable-length lists inside — hence Array types.
+    signature = ModelSignature(
+        inputs=Schema([ColSpec(DataType.string, "image_b64")]),
+        outputs=Schema([
+            ColSpec(Array(Array(DataType.double)), "boxes"),
+            ColSpec(Array(DataType.double), "scores"),
+            ColSpec(Array(DataType.string), "labels"),
+        ]),
+    )
+
     mlflow.pyfunc.log_model(
         artifact_path="model",
         python_model=Detector(model, label_map),
         registered_model_name=UC_MODEL,
-        signature=ModelSignature(inputs=Schema([ColSpec("string", "image_b64")])),
+        signature=signature,
         pip_requirements=["torch", "torchvision", "pillow", "pandas"],
     )
     # Persist label mapping as a run artifact too, for anyone reading the run.
