@@ -28,6 +28,8 @@ dbutils.widgets.text("exports_volume", "exports", "Exports volume")
 dbutils.widgets.text("export_dir", "", "COCO export dir (blank = latest)")
 dbutils.widgets.text("model_name", "object_detector", "UC model name")
 dbutils.widgets.text("epochs", "8", "Epochs")
+dbutils.widgets.dropdown("pretrained_backbone", "true", ["true", "false"],
+                         "Start from ImageNet-pretrained backbone (needs internet egress)")
 
 CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
@@ -35,6 +37,7 @@ EXPORTS_VOL = dbutils.widgets.get("exports_volume")
 EXPORT_DIR = dbutils.widgets.get("export_dir").strip()
 MODEL_NAME = dbutils.widgets.get("model_name")
 EPOCHS = int(dbutils.widgets.get("epochs"))
+PRETRAINED = dbutils.widgets.get("pretrained_backbone") == "true"
 
 # Fail fast rather than building a "/Volumes///..." path from blank widgets.
 assert CATALOG and SCHEMA, "catalog and schema are required"
@@ -124,10 +127,15 @@ import mlflow
 mlflow.set_registry_uri("databricks-uc")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Lightweight detector with RANDOM init (weights=None) — no pretrained-weights download,
-# which avoids a hang on clusters with restricted internet egress. Fine for a dummy model.
+# weights=None always: the COCO-pretrained detector head is built for 91 classes and would
+# have to be replaced anyway. weights_backbone is the useful half — ImageNet features give
+# the model something real to start from instead of noise.
+# Set pretrained_backbone=false on clusters with restricted internet egress: the weights are
+# downloaded from download.pytorch.org on first use, and a blocked cluster hangs instead.
 model = torchvision.models.detection.ssdlite320_mobilenet_v3_large(
-    weights=None, weights_backbone=None, num_classes=num_classes
+    weights=None,
+    weights_backbone="DEFAULT" if PRETRAINED else None,
+    num_classes=num_classes,
 )
 model.to(device)
 
@@ -137,7 +145,8 @@ optimizer = torch.optim.SGD(
 
 with mlflow.start_run(run_name="office-detector-dummy") as run:
     mlflow.log_params({
-        "base_model": "ssdlite320_mobilenet_v3_large (random init)", "epochs": EPOCHS,
+        "base_model": "ssdlite320_mobilenet_v3_large", "epochs": EPOCHS,
+        "pretrained_backbone": PRETRAINED,
         "num_classes": num_classes, "num_images": len(ds), "device": device.type,
         "classes": ",".join(c["name"] for c in cats), "export_dir": EXPORT_DIR,
     })
