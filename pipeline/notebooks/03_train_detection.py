@@ -17,7 +17,7 @@
 # Portable installs so this runs on a standard runtime too (no ML runtime required).
 # torch/torchvision/mlflow may be preinstalled on ML runtimes; pip is a no-op there.
 # numpy<2 keeps the runtime's pandas intact.
-# MAGIC %pip install --quiet torch torchvision mlflow "numpy<2"
+# MAGIC %pip install --quiet torch torchvision mlflow "numpy<2" pyopenssl
 # MAGIC %restart_python
 
 # COMMAND ----------
